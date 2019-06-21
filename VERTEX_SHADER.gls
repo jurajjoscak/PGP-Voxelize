@@ -1,0 +1,28 @@
+#version 430 core
+
+uniform float Scale_factor;
+uniform float horizontal;
+uniform float vertical;
+uniform mat4 MVP;
+
+out vec3 fragPosition;
+layout(location = 0) in vec3 vertexPosition_modelspace;
+
+vec4 transform(vec4 original)
+{
+	vec4 finalPosition = MVP*original;
+	finalPosition.z += Scale_factor;
+
+	fragPosition = finalPosition.xyz;
+
+	finalPosition.x *= pow(0.8, -finalPosition.z);
+	finalPosition.y *= pow(0.8, -finalPosition.z);
+	finalPosition.z *= 0.1;
+
+	return finalPosition;
+}
+
+void main()
+{
+	gl_Position = transform(vec4(vertexPosition_modelspace, 1));
+}

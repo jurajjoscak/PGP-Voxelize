@@ -1,0 +1,149 @@
+#version 430 core
+
+struct Triangle 
+{
+	float v0x;
+	float v0y;
+	float v0z;
+	float v1x;
+	float v1y;
+	float v1z;
+	float v2x;
+	float v2y;
+	float v2z;
+};
+
+uniform int resolution;
+uniform vec3 box_min;
+uniform vec3 box_max;
+uniform float step;
+uniform int width;
+uniform int height;
+uniform int depth;
+
+layout (std430, binding = 0) buffer Triangles 
+{
+	Triangle triangles[];
+};
+
+layout (std430, binding = 1) buffer Voxels
+{
+	int voxels[];
+};
+
+layout (local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+void main() 
+{
+		// Dont go out of range
+		if(gl_GlobalInvocationID.x >= triangles.length())
+			return;
+
+		// SETUP STAGE
+		Triangle t = triangles[gl_GlobalInvocationID.x];
+		vec3 v0 = vec3(triangles[gl_GlobalInvocationID.x].v0x, triangles[gl_GlobalInvocationID.x].v0y, triangles[gl_GlobalInvocationID.x].v0z);
+		vec3 v1 = vec3(triangles[gl_GlobalInvocationID.x].v1x, triangles[gl_GlobalInvocationID.x].v1y, triangles[gl_GlobalInvocationID.x].v1z);
+		vec3 v2 = vec3(triangles[gl_GlobalInvocationID.x].v2x, triangles[gl_GlobalInvocationID.x].v2y, triangles[gl_GlobalInvocationID.x].v2z);
+
+		vec3 tbbox_min = vec3(min(min(v0.x, v1.x), v2.x), min(min(v0.y, v1.y), v2.y), min(min(v0.z, v1.z), v2.z));
+		vec3 tbbox_max = vec3(max(max(v0.x, v1.x), v2.x), max(max(v0.y, v1.y), v2.y), max(max(v0.z, v1.z), v2.z));
+
+		int minx = int(floor((tbbox_min.x - box_min.x)/step));
+		int maxx = int(floor((tbbox_max.x - box_min.x)/step));
+		int miny = int(floor((tbbox_min.y - box_min.y)/step));
+		int maxy = int(floor((tbbox_max.y - box_min.y)/step));
+		int minz = int(floor((tbbox_min.z - box_min.z)/step));
+		int maxz = int(floor((tbbox_max.z - box_min.z)/step));
+
+		// Edges
+		vec3 e0 = v1 - v0;
+		vec3 e1 = v2 - v1;
+		vec3 e2 = v0 - v2;
+
+		// Triangle normal
+		vec3 n = normalize(cross(e0, e1));
+		
+		// Critical point
+		vec3 c;
+		c.x = (n.x > 0.0) ? step : 0.0;
+		c.y = (n.y > 0.0) ? step : 0.0;
+		c.z = (n.z > 0.0) ? step : 0.0;
+
+		float d1 = dot(n, c - v0);
+		float d2 = dot(n, (vec3(step, step, step) - c) - v0);
+
+		// 2D edge normals
+		vec2 n_xy_0 = vec2(-e0.y, e0.x)*((n.z >= 0.0) ? 1.0 : -1.0);
+		vec2 n_xy_1 = vec2(-e1.y, e1.x)*((n.z >= 0.0) ? 1.0 : -1.0);
+		vec2 n_xy_2 = vec2(-e2.y, e2.x)*((n.z >= 0.0) ? 1.0 : -1.0);
+
+		vec2 n_xz_0 = vec2(-e0.x, e0.z)*((n.y >= 0.0) ? 1.0 : -1.0);
+		vec2 n_xz_1 = vec2(-e1.x, e1.z)*((n.y >= 0.0) ? 1.0 : -1.0);
+		vec2 n_xz_2 = vec2(-e2.x, e2.z)*((n.y >= 0.0) ? 1.0 : -1.0);
+
+		vec2 n_yz_0 = vec2(-e0.z, e0.y)*((n.x >= 0.0) ? 1.0 : -1.0);
+		vec2 n_yz_1 = vec2(-e1.z, e1.y)*((n.x >= 0.0) ? 1.0 : -1.0);
+		vec2 n_yz_2 = vec2(-e2.z, e2.y)*((n.x >= 0.0) ? 1.0 : -1.0);
+
+
+
+		float d_xy_0 = -dot(n_xy_0, vec2(v0.x, v0.y)) + max(0.0, step*n_xy_0.x) + max(0.0, step*n_xy_0.y);
+		float d_xy_1 = -dot(n_xy_1, vec2(v1.x, v1.y)) + max(0.0, step*n_xy_1.x) + max(0.0, step*n_xy_1.y);
+		float d_xy_2 = -dot(n_xy_2, vec2(v2.x, v2.y)) + max(0.0, step*n_xy_2.x) + max(0.0, step*n_xy_2.y);
+
+		float d_xz_0 = -dot(n_xz_0, vec2(v0.z, v0.x)) + max(0.0, step*n_xz_0.x) + max(0.0, step*n_xz_0.y);
+		float d_xz_1 = -dot(n_xz_1, vec2(v1.z, v1.x)) + max(0.0, step*n_xz_1.x) + max(0.0, step*n_xz_1.y);
+		float d_xz_2 = -dot(n_xz_2, vec2(v2.z, v2.x)) + max(0.0, step*n_xz_2.x) + max(0.0, step*n_xz_2.y);
+
+		float d_yz_0 = -dot(n_yz_0, vec2(v0.y, v0.z)) + max(0.0, step*n_yz_0.x) + max(0.0, step*n_yz_0.y);
+		float d_yz_1 = -dot(n_yz_1, vec2(v1.y, v1.z)) + max(0.0, step*n_yz_1.x) + max(0.0, step*n_yz_1.y);
+		float d_yz_2 = -dot(n_yz_2, vec2(v2.y, v2.z)) + max(0.0, step*n_yz_2.x) + max(0.0, step*n_yz_2.y);
+		// SETUP STAGE ENDS HERE
+
+		
+		
+		// Loop over all voxels overlapped by triangle boundbox
+		{
+			for(int z = minz; z <= maxz; z++)
+			{
+				for(int y = miny; y <= maxy; y++)
+				{
+					for(int x = minx; x <= maxx; x++)
+					{
+						vec3 p = vec3(box_min.x + x*step, box_min.y + y*step, box_min.z + z*step);
+
+						// Plane overlap test
+						if((dot(n, p) + d1)*(dot(n, p) + d2) > 0.0)
+							continue;
+
+						// XY projection overlap test
+						if((dot(n_xy_0, vec2(p.x, p.y)) + d_xy_0) < 0.0)
+							continue;
+						if((dot(n_xy_1, vec2(p.x, p.y)) + d_xy_1) < 0.0)
+							continue;
+						if((dot(n_xy_2, vec2(p.x, p.y)) + d_xy_2) < 0.0)
+							continue;
+
+						// XZ projection overlap test
+						if((dot(n_xz_0, vec2(p.z, p.x)) + d_xz_0) < 0.0)
+							continue;
+						if((dot(n_xz_1, vec2(p.z, p.x)) + d_xz_1) < 0.0)
+							continue;
+						if((dot(n_xz_2, vec2(p.z, p.x)) + d_xz_2) < 0.0)
+							continue;
+
+						// YZ projection overlap test
+						if((dot(n_yz_0, vec2(p.y, p.z)) + d_yz_0) < 0.0)
+							continue;
+						if((dot(n_yz_1, vec2(p.y, p.z)) + d_yz_1) < 0.0)
+							continue;
+						if((dot(n_yz_2, vec2(p.y, p.z)) + d_yz_2) < 0.0)
+							continue;
+
+						
+						atomicOr(voxels[z*height*width + y*width + x], 1);
+						barrier();
+					}
+				}
+			}
+		}
+}
